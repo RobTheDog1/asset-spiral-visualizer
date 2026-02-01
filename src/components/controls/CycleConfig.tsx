@@ -1,7 +1,7 @@
 'use client';
 
 import { useAppStore } from '@/store/useAppStore';
-import { CycleDuration, PriceScale, ColorMode, DataInterval, INTERVAL_MAX_DAYS } from '@/types';
+import { CycleDuration, PriceScale, ColorMode } from '@/types';
 
 const CYCLE_OPTIONS: { value: CycleDuration; label: string; description: string }[] = [
   { value: 'daily', label: 'Daily', description: '1 day = 360°' },
@@ -20,17 +20,8 @@ const COLOR_MODE_OPTIONS: { value: ColorMode; label: string; description: string
   { value: 'price', label: 'Price', description: 'Absolute price level' },
 ];
 
-const INTERVAL_OPTIONS: { value: DataInterval; label: string; maxDays: number }[] = [
-  { value: '1m', label: '1 min', maxDays: 7 },
-  { value: '5m', label: '5 min', maxDays: 60 },
-  { value: '15m', label: '15 min', maxDays: 60 },
-  { value: '30m', label: '30 min', maxDays: 60 },
-  { value: '1h', label: '1 hour', maxDays: 60 },
-  { value: '1d', label: '1 day', maxDays: 7300 },
-];
-
 export function CycleConfig() {
-  const { config, setCycleDuration, setCustomDays, setPriceScale, setColorMode, setCycleOverlay, setDateRange, setInterval } = useAppStore();
+  const { config, setCycleDuration, setCustomDays, setPriceScale, setColorMode, setCycleOverlay, setDateRange } = useAppStore();
 
   const handleCycleChange = (value: string) => {
     setCycleDuration(value as CycleDuration);
@@ -61,18 +52,6 @@ export function CycleConfig() {
       }
     }
   };
-
-  const handleIntervalChange = (interval: DataInterval) => {
-    setInterval(interval);
-  };
-
-  // Calculate current date range in days
-  const currentRangeDays = Math.ceil(
-    (config.endDate.getTime() - config.startDate.getTime()) / (1000 * 60 * 60 * 24)
-  );
-
-  // Get max days for current interval
-  const maxDaysForInterval = INTERVAL_MAX_DAYS[config.interval];
 
   return (
     <div className="space-y-6">
@@ -169,46 +148,6 @@ export function CycleConfig() {
               className="w-24 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-orange-500"
             />
             <span className="text-gray-400">days = 360°</span>
-          </div>
-        )}
-      </div>
-
-      {/* Data Granularity */}
-      <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
-          Data Granularity
-        </h3>
-        <p className="text-xs text-gray-500">
-          Higher granularity = smoother spirals (but limited history)
-        </p>
-        <div className="grid grid-cols-3 gap-2">
-          {INTERVAL_OPTIONS.map((option) => (
-            <button
-              key={option.value}
-              onClick={() => handleIntervalChange(option.value)}
-              className={`p-2 rounded-lg text-center transition-colors ${
-                config.interval === option.value
-                  ? 'bg-orange-600 text-white'
-                  : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-              }`}
-            >
-              <div className="font-medium">{option.label}</div>
-              <div className="text-xs opacity-70">
-                {option.maxDays < 100 ? `${option.maxDays}d max` : '20y+'}
-              </div>
-            </button>
-          ))}
-        </div>
-        {/* Warning for intraday intervals */}
-        {config.interval !== '1d' && (
-          <div className="bg-yellow-900/30 border border-yellow-700/50 rounded-lg p-3">
-            <p className="text-xs text-yellow-200">
-              {config.interval === '1m' || config.interval === '2m' ? (
-                <>Limited to last 7 days of data. Date range auto-adjusted.</>
-              ) : (
-                <>Limited to last 60 days of data. Date range auto-adjusted.</>
-              )}
-            </p>
           </div>
         )}
       </div>
