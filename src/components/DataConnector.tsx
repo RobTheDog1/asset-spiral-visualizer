@@ -14,7 +14,8 @@ export function DataConnector() {
   const { data, isLoading, error } = usePriceData(
     asset?.symbol || null,
     config.startDate,
-    config.endDate
+    config.endDate,
+    config.interval
   );
 
   // Update store when data changes
