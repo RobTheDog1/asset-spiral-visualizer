@@ -11,6 +11,7 @@ import {
   getColorForPoint,
   preCalculateColorData,
   formatPrice,
+  getMarkerIndices,
 } from '@/lib/spiral/geometry';
 
 interface PriceSpiralProps {
@@ -147,36 +148,15 @@ export function PriceSpiral({
         />
       ))}
 
-      {/* Interactive point markers (every 10th point) */}
-      {adjustedSpiralPoints.filter((_, i) => i % 10 === 0).map((point, index) => {
-        const originalIndex = index * 10;
-        const color = vertexColors[originalIndex] || new THREE.Color('#ff6600');
-        const isHovered = hoveredPoint?.index === originalIndex;
-
-        return (
-          <mesh
-            key={index}
-            position={[point.x, point.y, point.z]}
-            onPointerOver={(e) => {
-              e.stopPropagation();
-              document.body.style.cursor = 'pointer';
-              setHoveredPoint({
-                position: [point.x, point.y, point.z],
-                price: priceData[originalIndex].price,
-                date: priceData[originalIndex].timestamp,
-                index: originalIndex,
-              });
-            }}
-            onPointerOut={() => {
-              document.body.style.cursor = 'auto';
-              setHoveredPoint(null);
-            }}
-          >
-            <sphereGeometry args={[isHovered ? 0.12 : 0.06, 12, 12]} />
-            <meshBasicMaterial color={isHovered ? '#ffffff' : color} />
-          </mesh>
-        );
-      })}
+      {/* Interactive point markers at meaningful time boundaries */}
+      <TimeMarkers
+        priceData={priceData}
+        adjustedSpiralPoints={adjustedSpiralPoints}
+        vertexColors={vertexColors}
+        config={config}
+        hoveredPoint={hoveredPoint}
+        setHoveredPoint={setHoveredPoint}
+      />
 
       {/* Tooltip for hovered point */}
       {hoveredPoint && (
@@ -217,6 +197,63 @@ export function PriceSpiral({
         <CycleMarkers priceData={priceData} config={config} />
       )}
     </group>
+  );
+}
+
+// Component for time-based markers (end of month, end of week, etc.)
+function TimeMarkers({
+  priceData,
+  adjustedSpiralPoints,
+  vertexColors,
+  config,
+  hoveredPoint,
+  setHoveredPoint,
+}: {
+  priceData: PricePoint[];
+  adjustedSpiralPoints: { x: number; y: number; z: number; price: number; timestamp: Date }[];
+  vertexColors: THREE.Color[];
+  config: SpiralConfig;
+  hoveredPoint: HoveredPoint | null;
+  setHoveredPoint: (point: HoveredPoint | null) => void;
+}) {
+  const markerIndices = useMemo(() => {
+    return getMarkerIndices(priceData, config.cycleDuration, config.customDays);
+  }, [priceData, config.cycleDuration, config.customDays]);
+
+  return (
+    <>
+      {markerIndices.map((originalIndex) => {
+        const point = adjustedSpiralPoints[originalIndex];
+        if (!point) return null;
+
+        const color = vertexColors[originalIndex] || new THREE.Color('#ff6600');
+        const isHovered = hoveredPoint?.index === originalIndex;
+
+        return (
+          <mesh
+            key={originalIndex}
+            position={[point.x, point.y, point.z]}
+            onPointerOver={(e) => {
+              e.stopPropagation();
+              document.body.style.cursor = 'pointer';
+              setHoveredPoint({
+                position: [point.x, point.y, point.z],
+                price: priceData[originalIndex].price,
+                date: priceData[originalIndex].timestamp,
+                index: originalIndex,
+              });
+            }}
+            onPointerOut={() => {
+              document.body.style.cursor = 'auto';
+              setHoveredPoint(null);
+            }}
+          >
+            <sphereGeometry args={[isHovered ? 0.12 : 0.06, 12, 12]} />
+            <meshBasicMaterial color={isHovered ? '#ffffff' : color} />
+          </mesh>
+        );
+      })}
+    </>
   );
 }
 

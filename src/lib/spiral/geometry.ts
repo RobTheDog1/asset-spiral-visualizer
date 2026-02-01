@@ -181,6 +181,115 @@ export function generatePriceLevelRings(
 }
 
 /**
+ * Get the ISO week number for a date
+ */
+function getWeekNumber(date: Date): number {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+}
+
+/**
+ * Find indices of key time boundaries for marker placement
+ * - Annual/Custom (>90 days): End of month (last trading day)
+ * - Quarterly: End of week
+ * - Monthly: End of week
+ * - Weekly: End of day (daily markers)
+ * - Daily: Every few hours or just endpoints
+ */
+export function getMarkerIndices(
+  priceData: PricePoint[],
+  cycleDuration: CycleDuration,
+  customDays?: number
+): number[] {
+  if (priceData.length === 0) return [];
+
+  const indices: number[] = [];
+  const cycleDays = getCycleDays(cycleDuration, customDays);
+
+  if (cycleDuration === 'annual' || cycleDuration === 'custom' && (customDays || 365) >= 90) {
+    // Monthly markers - find last trading day of each month
+    let lastMonth = -1;
+    let lastIndexInMonth = -1;
+
+    priceData.forEach((point, i) => {
+      const month = point.timestamp.getMonth();
+      const year = point.timestamp.getFullYear();
+      const monthKey = year * 12 + month;
+
+      if (monthKey !== lastMonth) {
+        // New month started - save the last index of previous month
+        if (lastIndexInMonth >= 0) {
+          indices.push(lastIndexInMonth);
+        }
+        lastMonth = monthKey;
+      }
+      lastIndexInMonth = i;
+    });
+
+    // Don't forget the last month
+    if (lastIndexInMonth >= 0 && !indices.includes(lastIndexInMonth)) {
+      indices.push(lastIndexInMonth);
+    }
+
+  } else if (cycleDuration === 'quarterly' || cycleDuration === 'monthly') {
+    // Weekly markers - find last trading day of each week
+    let lastWeek = -1;
+    let lastIndexInWeek = -1;
+
+    priceData.forEach((point, i) => {
+      const week = getWeekNumber(point.timestamp);
+      const year = point.timestamp.getFullYear();
+      const weekKey = year * 100 + week;
+
+      if (weekKey !== lastWeek) {
+        // New week started - save the last index of previous week
+        if (lastIndexInWeek >= 0) {
+          indices.push(lastIndexInWeek);
+        }
+        lastWeek = weekKey;
+      }
+      lastIndexInWeek = i;
+    });
+
+    // Don't forget the last week
+    if (lastIndexInWeek >= 0 && !indices.includes(lastIndexInWeek)) {
+      indices.push(lastIndexInWeek);
+    }
+
+  } else if (cycleDuration === 'weekly') {
+    // Daily markers - every trading day
+    // But that's too many, so let's do every other day
+    priceData.forEach((_, i) => {
+      if (i % 2 === 0 || i === priceData.length - 1) {
+        indices.push(i);
+      }
+    });
+
+  } else {
+    // Daily cycle - just a few markers
+    const step = Math.max(1, Math.floor(priceData.length / 10));
+    priceData.forEach((_, i) => {
+      if (i % step === 0 || i === priceData.length - 1) {
+        indices.push(i);
+      }
+    });
+  }
+
+  // Always include first and last points
+  if (indices.length > 0 && indices[0] !== 0) {
+    indices.unshift(0);
+  }
+  if (indices.length > 0 && indices[indices.length - 1] !== priceData.length - 1) {
+    indices.push(priceData.length - 1);
+  }
+
+  return indices;
+}
+
+/**
  * Format price for display
  */
 export function formatPrice(price: number): string {
