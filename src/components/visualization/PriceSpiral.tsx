@@ -1,8 +1,8 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import * as THREE from 'three';
-import { Line } from '@react-three/drei';
+import { Line, Html } from '@react-three/drei';
 import { PricePoint, SpiralConfig } from '@/types';
 import {
   priceSeriesToSpiral,
@@ -10,6 +10,7 @@ import {
   getCycleDays,
   getColorForPoint,
   preCalculateColorData,
+  formatPrice,
 } from '@/lib/spiral/geometry';
 
 interface PriceSpiralProps {
@@ -18,11 +19,20 @@ interface PriceSpiralProps {
   lineWidth?: number;
 }
 
+interface HoveredPoint {
+  position: [number, number, number];
+  price: number;
+  date: Date;
+  index: number;
+}
+
 export function PriceSpiral({
   priceData,
   config,
   lineWidth = 2,
 }: PriceSpiralProps) {
+  const [hoveredPoint, setHoveredPoint] = useState<HoveredPoint | null>(null);
+
   // Calculate spiral points from price data
   const { spiralPoints, scaling } = useMemo(() => {
     if (priceData.length === 0) {
@@ -39,10 +49,14 @@ export function PriceSpiral({
     return { spiralPoints: points, scaling };
   }, [priceData, config]);
 
-  // For cycle overlay mode, adjust Y positions to stack cycles
-  const adjustedSpiralPoints = useMemo(() => {
-    if (!config.cycleOverlay || spiralPoints.length === 0) {
-      return spiralPoints;
+  // For cycle overlay mode, group points by cycle
+  const { adjustedSpiralPoints, cycleGroups } = useMemo(() => {
+    if (spiralPoints.length === 0) {
+      return { adjustedSpiralPoints: spiralPoints, cycleGroups: [] };
+    }
+
+    if (!config.cycleOverlay) {
+      return { adjustedSpiralPoints: spiralPoints, cycleGroups: [] };
     }
 
     const cycleDays = getCycleDays(config.cycleDuration, config.customDays);
@@ -50,24 +64,49 @@ export function PriceSpiral({
     const baseDate = priceData[0].timestamp;
     const cycleHeight = 2; // Fixed height per cycle in overlay mode
 
-    return spiralPoints.map((point, i) => {
+    // Group points by cycle number
+    const groups: { cycleNum: number; points: typeof spiralPoints; indices: number[] }[] = [];
+    let currentCycle = -1;
+
+    const adjusted = spiralPoints.map((point, i) => {
       const daysElapsed = (priceData[i].timestamp.getTime() - baseDate.getTime()) / msPerDay;
       const cycleProgress = (daysElapsed % cycleDays) / cycleDays;
       const cycleNumber = Math.floor(daysElapsed / cycleDays);
 
-      return {
+      // Track cycle groups
+      if (cycleNumber !== currentCycle) {
+        groups.push({ cycleNum: cycleNumber, points: [], indices: [] });
+        currentCycle = cycleNumber;
+      }
+
+      const adjustedPoint = {
         ...point,
-        // In overlay mode, Y is just position within cycle, offset by cycle number for visibility
-        y: cycleProgress * cycleHeight + cycleNumber * 0.1, // Small offset so cycles don't perfectly overlap
+        y: cycleProgress * cycleHeight + cycleNumber * 0.15, // Small offset so cycles don't perfectly overlap
       };
+
+      groups[groups.length - 1].points.push(adjustedPoint);
+      groups[groups.length - 1].indices.push(i);
+
+      return adjustedPoint;
     });
+
+    return { adjustedSpiralPoints: adjusted, cycleGroups: groups };
   }, [spiralPoints, config, priceData]);
 
-  // Create line points for the spiral
-  const linePoints = useMemo(() => {
+  // Create line points - either single array or grouped by cycle
+  const linePointGroups = useMemo(() => {
     if (adjustedSpiralPoints.length === 0) return [];
-    return adjustedSpiralPoints.map((point): [number, number, number] => [point.x, point.y, point.z]);
-  }, [adjustedSpiralPoints]);
+
+    if (config.cycleOverlay && cycleGroups.length > 0) {
+      // Return separate arrays for each cycle
+      return cycleGroups.map(group =>
+        group.points.map((point): [number, number, number] => [point.x, point.y, point.z])
+      );
+    }
+
+    // Single continuous line
+    return [adjustedSpiralPoints.map((point): [number, number, number] => [point.x, point.y, point.z])];
+  }, [adjustedSpiralPoints, config.cycleOverlay, cycleGroups]);
 
   // Pre-calculate color data for performance
   const colorData = useMemo(() => {
@@ -84,30 +123,76 @@ export function PriceSpiral({
     );
   }, [priceData, config, colorData]);
 
+  // Group vertex colors by cycle for overlay mode
+  const vertexColorGroups = useMemo(() => {
+    if (!config.cycleOverlay || cycleGroups.length === 0) {
+      return [vertexColors];
+    }
+    return cycleGroups.map(group => group.indices.map(i => vertexColors[i]));
+  }, [vertexColors, config.cycleOverlay, cycleGroups]);
+
   if (adjustedSpiralPoints.length === 0) {
     return null;
   }
 
   return (
     <group>
-      {/* Main spiral line */}
-      <Line
-        points={linePoints}
-        vertexColors={vertexColors}
-        lineWidth={lineWidth}
-      />
+      {/* Main spiral line(s) - separate lines per cycle in overlay mode */}
+      {linePointGroups.map((points, groupIndex) => (
+        <Line
+          key={groupIndex}
+          points={points}
+          vertexColors={vertexColorGroups[groupIndex] || []}
+          lineWidth={lineWidth}
+        />
+      ))}
 
-      {/* Point markers for better visibility (every 20th point) */}
-      {adjustedSpiralPoints.filter((_, i) => i % 20 === 0).map((point, index) => {
-        const originalIndex = index * 20;
+      {/* Interactive point markers (every 10th point) */}
+      {adjustedSpiralPoints.filter((_, i) => i % 10 === 0).map((point, index) => {
+        const originalIndex = index * 10;
         const color = vertexColors[originalIndex] || new THREE.Color('#ff6600');
+        const isHovered = hoveredPoint?.index === originalIndex;
+
         return (
-          <mesh key={index} position={[point.x, point.y, point.z]}>
-            <sphereGeometry args={[0.05, 8, 8]} />
-            <meshBasicMaterial color={color} />
+          <mesh
+            key={index}
+            position={[point.x, point.y, point.z]}
+            onPointerOver={(e) => {
+              e.stopPropagation();
+              document.body.style.cursor = 'pointer';
+              setHoveredPoint({
+                position: [point.x, point.y, point.z],
+                price: priceData[originalIndex].price,
+                date: priceData[originalIndex].timestamp,
+                index: originalIndex,
+              });
+            }}
+            onPointerOut={() => {
+              document.body.style.cursor = 'auto';
+              setHoveredPoint(null);
+            }}
+          >
+            <sphereGeometry args={[isHovered ? 0.12 : 0.06, 12, 12]} />
+            <meshBasicMaterial color={isHovered ? '#ffffff' : color} />
           </mesh>
         );
       })}
+
+      {/* Tooltip for hovered point */}
+      {hoveredPoint && (
+        <Html position={hoveredPoint.position} center>
+          <div className="bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm shadow-xl pointer-events-none whitespace-nowrap">
+            <div className="font-bold text-orange-400">{formatPrice(hoveredPoint.price)}</div>
+            <div className="text-gray-400 text-xs">
+              {hoveredPoint.date.toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+              })}
+            </div>
+          </div>
+        </Html>
+      )}
 
       {/* Start point (green) */}
       <mesh position={[adjustedSpiralPoints[0].x, adjustedSpiralPoints[0].y, adjustedSpiralPoints[0].z]}>
