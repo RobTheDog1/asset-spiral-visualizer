@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { PricePoint } from '@/types';
+import { PricePoint, DataInterval } from '@/types';
 
 interface PriceDataResponse {
   symbol: string;
@@ -19,9 +19,10 @@ interface PriceDataResponse {
 async function fetchPriceData(
   symbol: string,
   startDate?: Date,
-  endDate?: Date
+  endDate?: Date,
+  interval: DataInterval = '1d'
 ): Promise<PricePoint[]> {
-  const params = new URLSearchParams({ symbol });
+  const params = new URLSearchParams({ symbol, interval });
 
   if (startDate) {
     params.set('startDate', startDate.toISOString());
@@ -53,11 +54,12 @@ async function fetchPriceData(
 export function usePriceData(
   symbol: string | null,
   startDate?: Date,
-  endDate?: Date
+  endDate?: Date,
+  interval: DataInterval = '1d'
 ) {
   return useQuery({
-    queryKey: ['priceData', symbol, startDate?.toISOString(), endDate?.toISOString()],
-    queryFn: () => fetchPriceData(symbol!, startDate, endDate),
+    queryKey: ['priceData', symbol, startDate?.toISOString(), endDate?.toISOString(), interval],
+    queryFn: () => fetchPriceData(symbol!, startDate, endDate, interval),
     enabled: !!symbol,
     staleTime: 5 * 60 * 1000, // 5 minutes
     gcTime: 30 * 60 * 1000, // 30 minutes
