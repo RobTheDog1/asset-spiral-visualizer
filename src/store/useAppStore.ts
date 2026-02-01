@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Asset, PricePoint, SpiralConfig, CycleDuration, PriceScale } from '@/types';
+import { Asset, PricePoint, SpiralConfig, CycleDuration, PriceScale, ColorMode } from '@/types';
 
 interface AppState {
   // Selected asset
@@ -12,6 +12,8 @@ interface AppState {
   setCycleDuration: (duration: CycleDuration) => void;
   setCustomDays: (days: number) => void;
   setPriceScale: (scale: PriceScale) => void;
+  setColorMode: (mode: ColorMode) => void;
+  setCycleOverlay: (enabled: boolean) => void;
   setDateRange: (startDate: Date, endDate: Date) => void;
 
   // Price data
@@ -32,6 +34,8 @@ const defaultConfig: SpiralConfig = {
   cycleDuration: 'annual',
   customDays: 365,
   priceScale: 'logarithmic',
+  colorMode: 'return',
+  cycleOverlay: false,
   startDate: new Date(Date.now() - 5 * 365 * 24 * 60 * 60 * 1000), // 5 years ago
   endDate: new Date(),
 };
@@ -58,6 +62,14 @@ export const useAppStore = create<AppState>((set) => ({
   setPriceScale: (scale) =>
     set((state) => ({
       config: { ...state.config, priceScale: scale },
+    })),
+  setColorMode: (mode) =>
+    set((state) => ({
+      config: { ...state.config, colorMode: mode },
+    })),
+  setCycleOverlay: (enabled) =>
+    set((state) => ({
+      config: { ...state.config, cycleOverlay: enabled },
     })),
   setDateRange: (startDate, endDate) =>
     set((state) => ({

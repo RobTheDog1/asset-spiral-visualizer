@@ -7,19 +7,20 @@ import { PricePoint, SpiralConfig } from '@/types';
 import {
   priceSeriesToSpiral,
   calculateScaling,
+  getCycleDays,
+  getColorForPoint,
+  preCalculateColorData,
 } from '@/lib/spiral/geometry';
 
 interface PriceSpiralProps {
   priceData: PricePoint[];
   config: SpiralConfig;
-  color?: string;
   lineWidth?: number;
 }
 
 export function PriceSpiral({
   priceData,
   config,
-  color = '#ff6600',
   lineWidth = 2,
 }: PriceSpiralProps) {
   // Calculate spiral points from price data
@@ -38,32 +39,52 @@ export function PriceSpiral({
     return { spiralPoints: points, scaling };
   }, [priceData, config]);
 
+  // For cycle overlay mode, adjust Y positions to stack cycles
+  const adjustedSpiralPoints = useMemo(() => {
+    if (!config.cycleOverlay || spiralPoints.length === 0) {
+      return spiralPoints;
+    }
+
+    const cycleDays = getCycleDays(config.cycleDuration, config.customDays);
+    const msPerDay = 1000 * 60 * 60 * 24;
+    const baseDate = priceData[0].timestamp;
+    const cycleHeight = 2; // Fixed height per cycle in overlay mode
+
+    return spiralPoints.map((point, i) => {
+      const daysElapsed = (priceData[i].timestamp.getTime() - baseDate.getTime()) / msPerDay;
+      const cycleProgress = (daysElapsed % cycleDays) / cycleDays;
+      const cycleNumber = Math.floor(daysElapsed / cycleDays);
+
+      return {
+        ...point,
+        // In overlay mode, Y is just position within cycle, offset by cycle number for visibility
+        y: cycleProgress * cycleHeight + cycleNumber * 0.1, // Small offset so cycles don't perfectly overlap
+      };
+    });
+  }, [spiralPoints, config, priceData]);
+
   // Create line points for the spiral
   const linePoints = useMemo(() => {
-    if (spiralPoints.length === 0) return [];
-    return spiralPoints.map((point): [number, number, number] => [point.x, point.y, point.z]);
-  }, [spiralPoints]);
+    if (adjustedSpiralPoints.length === 0) return [];
+    return adjustedSpiralPoints.map((point): [number, number, number] => [point.x, point.y, point.z]);
+  }, [adjustedSpiralPoints]);
 
-  // Create vertex colors based on price
+  // Pre-calculate color data for performance
+  const colorData = useMemo(() => {
+    if (priceData.length === 0) return null;
+    return preCalculateColorData(priceData, config);
+  }, [priceData, config]);
+
+  // Create vertex colors based on selected color mode
   const vertexColors = useMemo(() => {
-    if (spiralPoints.length === 0) return [];
+    if (priceData.length === 0 || !colorData) return [];
 
-    const prices = spiralPoints.map((p) => p.price);
-    const minPrice = Math.min(...prices);
-    const maxPrice = Math.max(...prices);
-    const priceRange = maxPrice - minPrice || 1;
+    return priceData.map((_, index) =>
+      getColorForPoint(index, priceData, config.colorMode, config, colorData)
+    );
+  }, [priceData, config, colorData]);
 
-    const baseColor = new THREE.Color(color);
-    const highlightColor = new THREE.Color('#ffcc00');
-
-    return spiralPoints.map((point) => {
-      const normalizedPrice = (point.price - minPrice) / priceRange;
-      const pointColor = baseColor.clone().lerp(highlightColor, normalizedPrice);
-      return pointColor;
-    });
-  }, [spiralPoints, color]);
-
-  if (spiralPoints.length === 0) {
+  if (adjustedSpiralPoints.length === 0) {
     return null;
   }
 
@@ -76,31 +97,74 @@ export function PriceSpiral({
         lineWidth={lineWidth}
       />
 
-      {/* Point markers for better visibility */}
-      {spiralPoints.length > 0 && spiralPoints.filter((_, i) => i % 20 === 0).map((point, index) => (
-        <mesh key={index} position={[point.x, point.y, point.z]}>
-          <sphereGeometry args={[0.05, 8, 8]} />
-          <meshBasicMaterial color={color} />
-        </mesh>
-      ))}
+      {/* Point markers for better visibility (every 20th point) */}
+      {adjustedSpiralPoints.filter((_, i) => i % 20 === 0).map((point, index) => {
+        const originalIndex = index * 20;
+        const color = vertexColors[originalIndex] || new THREE.Color('#ff6600');
+        return (
+          <mesh key={index} position={[point.x, point.y, point.z]}>
+            <sphereGeometry args={[0.05, 8, 8]} />
+            <meshBasicMaterial color={color} />
+          </mesh>
+        );
+      })}
 
       {/* Start point (green) */}
-      <mesh position={[spiralPoints[0].x, spiralPoints[0].y, spiralPoints[0].z]}>
+      <mesh position={[adjustedSpiralPoints[0].x, adjustedSpiralPoints[0].y, adjustedSpiralPoints[0].z]}>
         <sphereGeometry args={[0.15, 16, 16]} />
         <meshStandardMaterial color="#00ff00" emissive="#00aa00" emissiveIntensity={0.5} />
       </mesh>
 
-      {/* End point (red/current) */}
+      {/* End point (current price marker) */}
       <mesh
         position={[
-          spiralPoints[spiralPoints.length - 1].x,
-          spiralPoints[spiralPoints.length - 1].y,
-          spiralPoints[spiralPoints.length - 1].z,
+          adjustedSpiralPoints[adjustedSpiralPoints.length - 1].x,
+          adjustedSpiralPoints[adjustedSpiralPoints.length - 1].y,
+          adjustedSpiralPoints[adjustedSpiralPoints.length - 1].z,
         ]}
       >
-        <sphereGeometry args={[0.15, 16, 16]} />
-        <meshStandardMaterial color="#ff4444" emissive="#aa0000" emissiveIntensity={0.5} />
+        <sphereGeometry args={[0.2, 16, 16]} />
+        <meshStandardMaterial color="#ffffff" emissive="#ffffff" emissiveIntensity={0.8} />
       </mesh>
+
+      {/* Cycle markers in overlay mode */}
+      {config.cycleOverlay && priceData.length > 0 && (
+        <CycleMarkers priceData={priceData} config={config} />
+      )}
     </group>
+  );
+}
+
+// Component to show cycle start markers in overlay mode
+function CycleMarkers({ priceData, config }: { priceData: PricePoint[]; config: SpiralConfig }) {
+  const markers = useMemo(() => {
+    const cycleDays = getCycleDays(config.cycleDuration, config.customDays);
+    const msPerDay = 1000 * 60 * 60 * 24;
+    const baseDate = priceData[0].timestamp;
+
+    const cycleStarts: { cycleNum: number; date: Date }[] = [];
+    let lastCycle = -1;
+
+    priceData.forEach((point) => {
+      const daysElapsed = (point.timestamp.getTime() - baseDate.getTime()) / msPerDay;
+      const cycleNum = Math.floor(daysElapsed / cycleDays);
+
+      if (cycleNum !== lastCycle) {
+        cycleStarts.push({ cycleNum, date: point.timestamp });
+        lastCycle = cycleNum;
+      }
+    });
+
+    return cycleStarts;
+  }, [priceData, config]);
+
+  return (
+    <>
+      {markers.map((marker, i) => (
+        <group key={i} position={[0, marker.cycleNum * 0.1, 0]}>
+          {/* Cycle label would go here */}
+        </group>
+      ))}
+    </>
   );
 }

@@ -1,4 +1,5 @@
-import { PricePoint, SpiralConfig, SpiralPoint, CycleDuration, CYCLE_DAYS } from '@/types';
+import { PricePoint, SpiralConfig, SpiralPoint, CycleDuration, ColorMode, CYCLE_DAYS } from '@/types';
+import * as THREE from 'three';
 
 /**
  * Get the number of days in a cycle
@@ -196,4 +197,198 @@ export function formatPrice(price: number): string {
     return `$${price.toFixed(2)}`;
   }
   return `$${price.toFixed(4)}`;
+}
+
+/**
+ * Calculate daily returns from price data
+ */
+export function calculateReturns(priceData: PricePoint[]): number[] {
+  const returns: number[] = [0]; // First point has no return
+  for (let i = 1; i < priceData.length; i++) {
+    const prevPrice = priceData[i - 1].price;
+    const currPrice = priceData[i].price;
+    returns.push((currPrice - prevPrice) / prevPrice);
+  }
+  return returns;
+}
+
+/**
+ * Calculate drawdown (% below all-time high) for each point
+ */
+export function calculateDrawdown(priceData: PricePoint[]): number[] {
+  const drawdowns: number[] = [];
+  let peak = 0;
+  for (const point of priceData) {
+    peak = Math.max(peak, point.price);
+    const drawdown = (peak - point.price) / peak;
+    drawdowns.push(drawdown);
+  }
+  return drawdowns;
+}
+
+/**
+ * Calculate rolling volatility (standard deviation of returns)
+ */
+export function calculateVolatility(priceData: PricePoint[], window: number = 20): number[] {
+  const returns = calculateReturns(priceData);
+  const volatilities: number[] = [];
+
+  for (let i = 0; i < returns.length; i++) {
+    if (i < window) {
+      volatilities.push(0);
+      continue;
+    }
+
+    const windowReturns = returns.slice(i - window, i);
+    const mean = windowReturns.reduce((a, b) => a + b, 0) / window;
+    const variance = windowReturns.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / window;
+    volatilities.push(Math.sqrt(variance));
+  }
+
+  return volatilities;
+}
+
+/**
+ * Calculate cycle position for each point (0-1 representing position within cycle)
+ */
+export function calculateCyclePositions(
+  priceData: PricePoint[],
+  config: SpiralConfig
+): number[] {
+  if (priceData.length === 0) return [];
+
+  const baseDate = priceData[0].timestamp;
+  const cycleDays = getCycleDays(config.cycleDuration, config.customDays);
+  const msPerDay = 1000 * 60 * 60 * 24;
+
+  return priceData.map((point) => {
+    const daysElapsed = (point.timestamp.getTime() - baseDate.getTime()) / msPerDay;
+    const cycleProgress = daysElapsed / cycleDays;
+    return cycleProgress % 1; // Position within current cycle (0-1)
+  });
+}
+
+/**
+ * Aggregate returns by cycle position to find patterns
+ * Returns average return at each position bucket
+ */
+export function calculateCyclePositionReturns(
+  priceData: PricePoint[],
+  config: SpiralConfig,
+  buckets: number = 36 // 10-degree buckets
+): { position: number; avgReturn: number; count: number }[] {
+  const returns = calculateReturns(priceData);
+  const positions = calculateCyclePositions(priceData, config);
+
+  // Aggregate returns by bucket
+  const bucketReturns: number[][] = Array.from({ length: buckets }, () => []);
+
+  for (let i = 0; i < positions.length; i++) {
+    const bucketIndex = Math.floor(positions[i] * buckets) % buckets;
+    bucketReturns[bucketIndex].push(returns[i]);
+  }
+
+  return bucketReturns.map((returns, i) => ({
+    position: i / buckets,
+    avgReturn: returns.length > 0 ? returns.reduce((a, b) => a + b, 0) / returns.length : 0,
+    count: returns.length,
+  }));
+}
+
+/**
+ * Get color for a point based on the selected color mode
+ */
+export function getColorForPoint(
+  index: number,
+  priceData: PricePoint[],
+  colorMode: ColorMode,
+  config: SpiralConfig,
+  // Pre-calculated data for performance
+  cachedData?: {
+    returns?: number[];
+    drawdowns?: number[];
+    volatilities?: number[];
+    cyclePositionReturns?: { position: number; avgReturn: number }[];
+  }
+): THREE.Color {
+  const returns = cachedData?.returns || calculateReturns(priceData);
+
+  switch (colorMode) {
+    case 'price': {
+      // Original: orange to yellow based on price
+      const prices = priceData.map((p) => p.price);
+      const minPrice = Math.min(...prices);
+      const maxPrice = Math.max(...prices);
+      const normalizedPrice = (priceData[index].price - minPrice) / (maxPrice - minPrice || 1);
+      return new THREE.Color('#ff6600').lerp(new THREE.Color('#ffcc00'), normalizedPrice);
+    }
+
+    case 'return': {
+      // Green for positive, red for negative returns
+      const returnValue = returns[index];
+      const maxReturn = Math.max(...returns.map(Math.abs), 0.01);
+      const intensity = Math.min(Math.abs(returnValue) / maxReturn, 1);
+
+      if (returnValue >= 0) {
+        // Green gradient
+        return new THREE.Color('#1a1a1a').lerp(new THREE.Color('#00ff00'), intensity);
+      } else {
+        // Red gradient
+        return new THREE.Color('#1a1a1a').lerp(new THREE.Color('#ff0000'), intensity);
+      }
+    }
+
+    case 'drawdown': {
+      // Yellow (no drawdown) to red (max drawdown)
+      const drawdowns = cachedData?.drawdowns || calculateDrawdown(priceData);
+      const drawdown = drawdowns[index];
+      const maxDrawdown = Math.max(...drawdowns, 0.01);
+      const intensity = drawdown / maxDrawdown;
+      return new THREE.Color('#00ff00').lerp(new THREE.Color('#ff0000'), intensity);
+    }
+
+    case 'volatility': {
+      // Blue (low vol) to red (high vol)
+      const volatilities = cachedData?.volatilities || calculateVolatility(priceData);
+      const vol = volatilities[index];
+      const maxVol = Math.max(...volatilities.filter((v) => v > 0), 0.01);
+      const intensity = vol / maxVol;
+      return new THREE.Color('#0066ff').lerp(new THREE.Color('#ff3300'), intensity);
+    }
+
+    case 'cyclePosition': {
+      // Color based on average return at this cycle position
+      const cycleReturns = cachedData?.cyclePositionReturns || calculateCyclePositionReturns(priceData, config);
+      const positions = calculateCyclePositions(priceData, config);
+      const bucketIndex = Math.floor(positions[index] * cycleReturns.length) % cycleReturns.length;
+      const avgReturn = cycleReturns[bucketIndex].avgReturn;
+
+      const maxAvgReturn = Math.max(...cycleReturns.map((r) => Math.abs(r.avgReturn)), 0.001);
+      const intensity = Math.min(Math.abs(avgReturn) / maxAvgReturn, 1);
+
+      if (avgReturn >= 0) {
+        return new THREE.Color('#333333').lerp(new THREE.Color('#00ff88'), intensity);
+      } else {
+        return new THREE.Color('#333333').lerp(new THREE.Color('#ff4444'), intensity);
+      }
+    }
+
+    default:
+      return new THREE.Color('#ff6600');
+  }
+}
+
+/**
+ * Pre-calculate all color-related data for performance
+ */
+export function preCalculateColorData(
+  priceData: PricePoint[],
+  config: SpiralConfig
+) {
+  return {
+    returns: calculateReturns(priceData),
+    drawdowns: calculateDrawdown(priceData),
+    volatilities: calculateVolatility(priceData),
+    cyclePositionReturns: calculateCyclePositionReturns(priceData, config),
+  };
 }

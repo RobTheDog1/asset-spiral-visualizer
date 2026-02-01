@@ -1,7 +1,7 @@
 'use client';
 
 import { useAppStore } from '@/store/useAppStore';
-import { CycleDuration, PriceScale } from '@/types';
+import { CycleDuration, PriceScale, ColorMode } from '@/types';
 
 const CYCLE_OPTIONS: { value: CycleDuration; label: string; description: string }[] = [
   { value: 'daily', label: 'Daily', description: '1 day = 360°' },
@@ -12,8 +12,16 @@ const CYCLE_OPTIONS: { value: CycleDuration; label: string; description: string 
   { value: 'custom', label: 'Custom', description: 'Set your own period' },
 ];
 
+const COLOR_MODE_OPTIONS: { value: ColorMode; label: string; description: string }[] = [
+  { value: 'return', label: 'Returns', description: 'Green = gains, Red = losses' },
+  { value: 'drawdown', label: 'Drawdown', description: 'Distance from all-time high' },
+  { value: 'volatility', label: 'Volatility', description: 'Blue = calm, Red = volatile' },
+  { value: 'cyclePosition', label: 'Seasonal', description: 'Patterns at same cycle position' },
+  { value: 'price', label: 'Price', description: 'Absolute price level' },
+];
+
 export function CycleConfig() {
-  const { config, setCycleDuration, setCustomDays, setPriceScale, setDateRange } = useAppStore();
+  const { config, setCycleDuration, setCustomDays, setPriceScale, setColorMode, setCycleOverlay, setDateRange } = useAppStore();
 
   const handleCycleChange = (value: string) => {
     setCycleDuration(value as CycleDuration);
@@ -30,6 +38,10 @@ export function CycleConfig() {
     setPriceScale(scale);
   };
 
+  const handleColorModeChange = (mode: ColorMode) => {
+    setColorMode(mode);
+  };
+
   const handleDateChange = (field: 'start' | 'end', value: string) => {
     const date = new Date(value);
     if (!isNaN(date.getTime())) {
@@ -43,6 +55,63 @@ export function CycleConfig() {
 
   return (
     <div className="space-y-6">
+      {/* Color Mode */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
+          Color Mode
+        </h3>
+        <p className="text-xs text-gray-500">
+          What the spiral colors represent
+        </p>
+        <div className="space-y-2">
+          {COLOR_MODE_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              onClick={() => handleColorModeChange(option.value)}
+              className={`w-full p-2 rounded-lg text-left transition-colors ${
+                config.colorMode === option.value
+                  ? 'bg-orange-600 text-white'
+                  : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+              }`}
+            >
+              <div className="flex justify-between items-center">
+                <span className="font-medium">{option.label}</span>
+                <span className="text-xs opacity-70">{option.description}</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Cycle Overlay Toggle */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
+          Cycle Comparison
+        </h3>
+        <button
+          onClick={() => setCycleOverlay(!config.cycleOverlay)}
+          className={`w-full p-3 rounded-lg text-left transition-colors ${
+            config.cycleOverlay
+              ? 'bg-orange-600 text-white'
+              : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+          }`}
+        >
+          <div className="flex justify-between items-center">
+            <span className="font-medium">Overlay Cycles</span>
+            <span className={`w-12 h-6 rounded-full relative transition-colors ${
+              config.cycleOverlay ? 'bg-orange-400' : 'bg-gray-600'
+            }`}>
+              <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                config.cycleOverlay ? 'translate-x-7' : 'translate-x-1'
+              }`} />
+            </span>
+          </div>
+          <p className="text-xs opacity-70 mt-1">
+            Stack all cycles at same height to compare patterns
+          </p>
+        </button>
+      </div>
+
       {/* Cycle Duration */}
       <div className="space-y-3">
         <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">

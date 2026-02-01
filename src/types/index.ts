@@ -13,6 +13,8 @@ export interface SpiralConfig {
   cycleDuration: CycleDuration;
   customDays?: number;
   priceScale: PriceScale;
+  colorMode: ColorMode;
+  cycleOverlay: boolean; // Stack cycles at same height for comparison
   startDate: Date;
   endDate: Date;
 }
@@ -20,6 +22,8 @@ export interface SpiralConfig {
 export type CycleDuration = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annual' | 'custom';
 
 export type PriceScale = 'linear' | 'logarithmic';
+
+export type ColorMode = 'price' | 'return' | 'drawdown' | 'volatility' | 'cyclePosition';
 
 export type AssetType = 'stock' | 'crypto' | 'forex' | 'commodity' | 'bond';
 
