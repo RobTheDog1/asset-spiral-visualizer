@@ -30,7 +30,7 @@ export default function Home() {
       <ControlPanel />
 
       {/* 3D Visualization (main area) */}
-      <div className="flex-1">
+      <div className="flex-1 h-full">
         <SpiralCanvas />
       </div>
     </div>

@@ -81,8 +81,9 @@ export function SpiralCanvas() {
   }
 
   return (
-    <div className="w-full h-full bg-gray-950">
+    <div className="w-full h-full min-h-[400px] bg-gray-950" style={{ height: '100%' }}>
       <Canvas
+        style={{ width: '100%', height: '100%' }}
         gl={{
           antialias: true,
           alpha: false,
